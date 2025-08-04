@@ -1,20 +1,28 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
 import uvicorn
 import logging
 import uuid
+import os
 
-from .api import routes
+from .api import routes, auth as auth_routes, admin as admin_routes
 from .core import config, security, logging as app_logging
+from .core.auth import get_current_user
 from .services.worker import WorkerPool
 
 
 # Setup logging
 app_logging.setup_logging(config.settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
+
+# Setup templates
+templates_dir = os.path.join(os.path.dirname(__file__), "templates")
+templates = Jinja2Templates(directory=templates_dir)
 
 
 @asynccontextmanager
@@ -80,8 +88,66 @@ async def add_request_id(request: Request, call_next):
     response.headers["X-Request-ID"] = request_id
     return response
 
+# Mount static files
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
 # Include routers
 app.include_router(routes.router)
+app.include_router(auth_routes.router)
+app.include_router(admin_routes.router)
+
+# Authentication middleware for specific routes
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Check authentication for protected routes."""
+    path = request.url.path
+    
+    # Protected routes that require authentication
+    protected_routes = ["/docs", "/redoc", "/openapi.json", "/admin"]
+    
+    # Check if route needs protection
+    needs_auth = any(path.startswith(route) for route in protected_routes)
+    
+    if needs_auth and path not in ["/login", "/api/auth/login"]:
+        # Check for auth header
+        auth_header = request.headers.get("Authorization")
+        
+        # For browser requests, redirect to login
+        if not auth_header and request.headers.get("accept", "").startswith("text/html"):
+            return RedirectResponse(url=f"/login?redirect={path}", status_code=status.HTTP_302_FOUND)
+        
+        # For API requests, check auth
+        if not auth_header:
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": "Not authenticated"},
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+    
+    response = await call_next(request)
+    return response
+
+# HTML Routes
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    """Serve login page."""
+    return templates.TemplateResponse("login.html", {"request": request})
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_dashboard(
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
+    """Serve admin dashboard."""
+    if not current_user or not current_user.get("is_admin"):
+        return RedirectResponse(url="/login?redirect=/admin", status_code=status.HTTP_302_FOUND)
+    
+    return templates.TemplateResponse("admin.html", {
+        "request": request,
+        "user": current_user
+    })
 
 # Root endpoint
 @app.get("/")
@@ -91,7 +157,8 @@ async def root():
         "message": "MarkItDown Microservice",
         "version": config.settings.APP_VERSION,
         "docs": "/docs",
-        "health": f"{config.settings.API_PREFIX}/health"
+        "health": f"{config.settings.API_PREFIX}/health",
+        "admin": "/admin"
     }
 
 # Global exception handler

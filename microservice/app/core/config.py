@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     APP_NAME: str = "MarkItDown Microservice"
     APP_VERSION: str = "1.0.0"
     
+    # Authentication
+    SECRET_KEY: str = "change-this-secret-key-in-production"
+    ADMIN_USERNAME: str = "admin"
+    ADMIN_PASSWORD: str = "changeme"  # Change this in production!
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

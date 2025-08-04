@@ -30,3 +30,14 @@ gunicorn==21.2.0
 redis==5.0.1
 
 # MarkItDown will be installed from local package
+
+# Authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Template rendering
+jinja2==3.1.4
+
+# Additional utilities
+python-dateutil==2.9.0
+psutil==5.9.8

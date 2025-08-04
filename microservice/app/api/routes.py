@@ -4,6 +4,8 @@ import logging
 import traceback
 from typing import Optional
 import asyncio
+import time
+import os
 
 from ..api.models import (
     ConversionResponse, 
@@ -15,6 +17,7 @@ from ..api.models import (
 from ..core.config import settings
 from ..core.security import validate_file_type, validate_file_size
 from ..services.converter import ConversionService
+from ..api.admin import update_conversion_stats
 
 
 logger = logging.getLogger(__name__)
@@ -173,12 +176,16 @@ async def convert_file(
     - **file_extension**: Override the file extension for conversion
     - **mimetype**: Override the MIME type for conversion
     """
+    start_time = time.time()
+    file_size = 0
+    
     try:
         # Read file content
         file_content = await file.read()
+        file_size = len(file_content)
         
         # Validate file size
-        validate_file_size(len(file_content))
+        validate_file_size(file_size)
         
         # Validate file type
         detected_mimetype, detected_extension = validate_file_type(
@@ -193,7 +200,7 @@ async def convert_file(
         
         logger.info(
             f"Converting file: {file.filename}, "
-            f"size: {len(file_content)} bytes, "
+            f"size: {file_size} bytes, "
             f"extension: {final_extension}, "
             f"mimetype: {final_mimetype}"
         )
@@ -211,13 +218,33 @@ async def convert_file(
                 timeout=settings.REQUEST_TIMEOUT
             )
         except asyncio.TimeoutError:
+            duration = (time.time() - start_time) * 1000  # Convert to ms
+            update_conversion_stats(
+                filename=file.filename,
+                file_type=final_extension,
+                file_size=file_size,
+                duration=duration,
+                status="timeout"
+            )
             logger.error(f"Conversion timeout for file: {file.filename}")
             raise HTTPException(
                 status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                 detail=f"Conversion timeout after {settings.REQUEST_TIMEOUT} seconds"
             )
         
-        logger.info(f"Conversion successful for file: {file.filename}")
+        # Calculate duration
+        duration = (time.time() - start_time) * 1000  # Convert to ms
+        
+        # Update statistics
+        update_conversion_stats(
+            filename=file.filename,
+            file_type=final_extension,
+            file_size=file_size,
+            duration=duration,
+            status="success"
+        )
+        
+        logger.info(f"Conversion successful for file: {file.filename} (took {duration:.2f}ms)")
         
         return ConversionResponse(
             markdown=result["markdown"],
@@ -228,6 +255,14 @@ async def convert_file(
     except HTTPException:
         raise
     except Exception as e:
+        duration = (time.time() - start_time) * 1000  # Convert to ms
+        update_conversion_stats(
+            filename=file.filename if file else "unknown",
+            file_type=file_extension or os.path.splitext(file.filename)[1] if file else "unknown",
+            file_size=file_size,
+            duration=duration,
+            status="error"
+        )
         logger.error(f"Conversion error: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
