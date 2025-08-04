@@ -14,8 +14,15 @@ class Settings(BaseSettings):
     MAX_QUEUE_SIZE: int = 100
     
     # Security
-    ALLOWED_ORIGINS: List[str] = ["*"]
+    ALLOWED_ORIGINS: str = "*"  # Can be comma-separated list: "http://localhost:3000,https://example.com"
     RATE_LIMIT_PER_MINUTE: int = 60
+    
+    @property
+    def allowed_origins_list(self) -> List[str]:
+        """Parse ALLOWED_ORIGINS into a list."""
+        if self.ALLOWED_ORIGINS == "*":
+            return ["*"]
+        return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",")]
     
     # Features
     ENABLE_REDIS: bool = False

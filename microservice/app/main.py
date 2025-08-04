@@ -54,7 +54,7 @@ app.add_middleware(security.SecurityMiddleware)
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=config.settings.ALLOWED_ORIGINS,
+    allow_origins=config.settings.allowed_origins_list,
     allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
