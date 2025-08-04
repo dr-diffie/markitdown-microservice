@@ -1,33 +1,49 @@
-FROM python:3.13-slim-bullseye
+# Single stage build for simplicity
+FROM python:3.11-slim
 
-ENV DEBIAN_FRONTEND=noninteractive
+# Install runtime and build dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    ffmpeg \
+    exiftool \
+    libmagic1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1000 appuser
+
+WORKDIR /app
+
+# Copy requirements and install as root (globally)
+COPY microservice/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy markitdown package and install globally
+COPY packages/markitdown /tmp/markitdown
+RUN pip install --no-cache-dir /tmp/markitdown[all] && rm -rf /tmp/markitdown
+
+# Copy application code
+COPY microservice/app /app/app
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
 ENV EXIFTOOL_PATH=/usr/bin/exiftool
 ENV FFMPEG_PATH=/usr/bin/ffmpeg
 
-# Runtime dependency
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    exiftool
+# Change ownership of app directory
+RUN chown -R appuser:appuser /app
 
-ARG INSTALL_GIT=false
-RUN if [ "$INSTALL_GIT" = "true" ]; then \
-    apt-get install -y --no-install-recommends \
-    git; \
-    fi
+# Switch to non-root user
+USER appuser
 
-# Cleanup
-RUN rm -rf /var/lib/apt/lists/*
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health').read()" || exit 1
 
-WORKDIR /app
-COPY . /app
-RUN pip --no-cache-dir install \
-    /app/packages/markitdown[all] \
-    /app/packages/markitdown-sample-plugin
+# Expose port
+EXPOSE 8000
 
-# Default USERID and GROUPID
-ARG USERID=nobody
-ARG GROUPID=nogroup
-
-USER $USERID:$GROUPID
-
-ENTRYPOINT [ "markitdown" ]
+# Run the application
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]

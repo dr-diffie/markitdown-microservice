@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  markitdown-api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - MAX_FILE_SIZE=104857600  # 100MB
+      - WORKER_COUNT=4
+      - LOG_LEVEL=INFO
+      - RATE_LIMIT_PER_MINUTE=60
+      - REQUEST_TIMEOUT=300
+      - API_PREFIX=/api/v1
+      - ALLOWED_ORIGINS=["*"]
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/api/v1/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional Redis service for future caching/queuing
+  # redis:
+  #   image: redis:7-alpine
+  #   ports:
+  #     - "6379:6379"
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '0.5'
+  #         memory: 512M
+  #   restart: unless-stopped
