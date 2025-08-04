@@ -46,7 +46,21 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["Content-Security-Policy"] = "default-src 'self'"
+        
+        # Set appropriate CSP based on the path
+        if request.url.path in ["/login", "/admin"]:
+            # Allow external resources for login and admin pages
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net/npm/chart.js https://cdnjs.cloudflare.com; "
+                "style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdnjs.cloudflare.com; "
+                "font-src 'self' https://cdnjs.cloudflare.com; "
+                "img-src 'self' data:; "
+                "connect-src 'self'"
+            )
+        else:
+            # Strict CSP for API endpoints
+            response.headers["Content-Security-Policy"] = "default-src 'self'"
         
         # Add request timing
         process_time = time.time() - start_time
